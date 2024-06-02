@@ -44,7 +44,7 @@ def convert_docx_to_md_with_images(docx_file_path, md_path, media_path):
         temp_docx.write(docx_content)
 
     pandoc_path = os.getenv('PANDOC_PATH')
-    print("pandoc path = ", pandoc_path)
+    # print("pandoc path = ", pandoc_path)
     if pandoc_path is None:
         raise ValueError("PANDOC_PATH environment variable is not set. Please check your .env file or environment variables.")
 
@@ -67,34 +67,34 @@ def convert_docx_to_md_with_images(docx_file_path, md_path, media_path):
 
 
 def extract_elements_from_markdown(markdown_content):
-
+    
     prompt = """
-    Task: Fact Extraction for Engaging Presentations
+    
+Task: Fact Extraction for Engaging Presentations
 
 Objective:
-Your task is to extract factual information from the provided markdown document, specifically tailored for effective presentations. Categorize each element into the following types: Paragraph, Bullet Points, and Table. For each identified element, focus on presenting key facts and data without narrative language or conclusions. Provide suitable titles for each extracted element to be used as slide titles.
+Your task is to extract factual information from the provided markdown document, specifically tailored for effective presentations. Categorize each element into the following types: Paragraph, Bullet Points, Table, and Image. For each identified element, focus on presenting the content as it is, without summarization. Provide suitable titles for each extracted element to be used as slide titles.
 
 Guidelines:
 
-Paragraph: Extract key facts and information from paragraphs in a concise and straightforward manner. Output the extracted factual content in the format 'Title: {title}', followed by 'Paragraph: {content}'. Avoid using a narrative style in the content.
+Paragraph: Extract the full text from paragraphs without summarizing. Ensure paragraphs are treated as separate elements and not merged with bullet points. If a paragraph starts with the word "Paragraph," remove this word and output the content as a separate paragraph. Output the extracted content in the format 'Title: {title}', followed by 'Paragraph: {content}'.
 
-Bullet Points: Reframe bullet points into concise factual statements, ensuring clarity and completeness. There should be a minimum of 2 sub points in every bullet point category. Maintain the original structure, including hierarchy and subpoints. Output the extracted factual content in the format 'Title: {title}', followed by 'Bullet Points: {content}''. Do not include the word "Paragraph" within bullet point text.
+Bullet Points: Reframe bullet points as they are, ensuring clarity and completeness. There should be a minimum of 2 subpoints in every bullet point category. Maintain the original structure, including hierarchy and subpoints. Ensure that paragraphs are not included within bullet points, even if they start with the word "Paragraph." Output the extracted content in the format 'Title: {title}', followed by 'Bullet Points: {content}'.
 
 Table: Identify tables based on the presence of vertical bars ("|") indicating columns and rows. Preserve the tabular structure exactly as in the original markdown. Each row and column should be clearly identified. Do not introduce additional paragraphs or bullet points within the table section. Tables should be presented as raw markdown content. Output in the format 'Title: {title}', followed by 'Table: {content}'.
 
+Image: Identify the caption if the image as it's content. Present the image caption in the format 'Title: {title}', followed by 'Image: {content}'.
+
 Additional Notes:
 
-Structured Content: Organize extracted factual information into distinct sections under their respective headings for Paragraph, Bullet Points, and Table. This creates a clear and organized presentation structure.
+- Structured Content: Organize extracted information into distinct sections under their respective headings for Paragraph, Bullet Points, Table, and Image. This creates a clear and organized presentation structure. Avoid merging the content of elements.
+- Engaging Language: Use language that maintains engagement while prioritizing factual accuracy over style. Avoid a narrative writing style. 
+- Presentation Focus: Tailor extracted information specifically for presentation effectiveness, ensuring clarity and relevance to the audience.
+- Slide Titles: Provide appropriate titles for each extracted element to be used as slide titles, enhancing the overall presentation's quality and clarity.
 
-Engaging Language: Use language that maintains engagement while prioritizing factual accuracy over style. Avoid a narrative writing style. Focus on presenting key facts and data in a concise and clear manner.
+Remember, the goal is to extract factual information from the provided markdown document, presenting it in a clear and engaging manner suitable for presentation slides, without summarizing the content. Your ability to present the full text will enhance the overall presentation's quality and effectiveness.
 
-Presentation Focus: Tailor extracted information specifically for presentation effectiveness, ensuring clarity and relevance to the audience.
-
-Slide Titles: Provide appropriate titles for each extracted element to be used as slide titles, enhancing the overall presentation's quality and clarity.
-
-Remember, the goal is to extract factual information from the provided markdown document, presenting it in a clear and engaging manner suitable for presentation slides. Your ability to extract key facts and data will enhance the overall presentation's quality and effectiveness.
     """
-    
     full_prompt = prompt + markdown_content
 
     response = client.chat.completions.create(model="gpt-4",
@@ -103,7 +103,7 @@ Remember, the goal is to extract factual information from the provided markdown 
         {"role": "user", "content": full_prompt}
     ],
     max_tokens=2000,
-    temperature=0.7)
+    temperature=0.4)
 
     extracted_elements = response.choices[0].message.content
     
@@ -117,7 +117,8 @@ def convert_text_to_format(text):
     result = []
 
     # Define the pattern to capture each element with title
-    pattern = re.compile(r'Title: (.*?)\n(Paragraph|Bullet Points|Table):\s*(.*?)(?=\n\n(?:Title|Paragraph|Bullet Points|Table)|\Z)', re.DOTALL)
+    # pattern = re.compile(r'Title: (.*?)\n(Paragraph|Bullet Points|Table):\s*(.*?)(?=\n\n(?:Title|Paragraph|Bullet Points|Table)|\Z)', re.DOTALL)
+    pattern = re.compile(r'Title: (.*?)\n(Paragraph|Bullet Points|Table|Image):\s*(.*?)(?=\n\n(?:Title|Paragraph|Bullet Points|Table|Image)|\Z)', re.DOTALL)
 
     # Iterate through matches
     for match in pattern.finditer(text):
@@ -130,7 +131,10 @@ def convert_text_to_format(text):
             content = content.replace(':', '').replace('\"', '')
 
         elif element_type == 'Table':
-            content = content.strip().split('\n')
+            content = ""
+        
+        elif element_type == 'Image':
+            content = ""
 
         result.append((title, element_type, content))
 
@@ -142,17 +146,22 @@ def convert_to_json(result_list):
 
     for title, element_type, content in result_list:
         if element_type == 'Paragraph':
+            content = re.sub(r'^\s*paragraph\s*|\s*Paragraph\s*', '', content)
             content = content.replace('\n', ' ')
             paragraph_data = {"title": title, "shape": "Paragraph", "data": [{"text": content}]}
             output_list.append(paragraph_data)
 
         elif element_type == 'Bullet Points':
-            bullet_points_data = [{"text": point} for point in content]
-            bullet_points_entry = {"title": title, "shape": "Bullet Points", "data": bullet_points_data}
+            bullet_points_data = [{"text": point.lstrip('- ')} for point in content]
+            bullet_points_entry = {"title": title, "shape": "BulletTitle", "data": bullet_points_data}
             output_list.append(bullet_points_entry)
 
         elif element_type == 'Table':
-            table_data = {"title": title, "shape": "Table", "data": [{"Text": content}]}
+            table_data = {"title": title, "shape": "Table", "data": content}
             output_list.append(table_data)
+        
+        elif element_type == "Image":
+            image_data = {"title": title, "shape": "Image", "data": [{"Text": content}]}
+            output_list.append(image_data)
 
     return output_list
